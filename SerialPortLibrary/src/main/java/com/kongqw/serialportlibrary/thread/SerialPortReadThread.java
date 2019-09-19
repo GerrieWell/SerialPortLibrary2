@@ -20,7 +20,7 @@ public abstract class SerialPortReadThread extends Thread {
 
     public SerialPortReadThread(InputStream inputStream) {
         mInputStream = inputStream;
-        mReadBuffer = new byte[1024];
+        mReadBuffer = new byte[64];
     }
 
     @Override
@@ -30,14 +30,16 @@ public abstract class SerialPortReadThread extends Thread {
         while (!isInterrupted()) {
             try {
                 if (null == mInputStream) {
-                    return;
+                    Log.i(TAG, "run: null input stream" );
+                    break;
                 }
 
                 Log.i(TAG, "run: ");
                 int size = mInputStream.read(mReadBuffer);
 
                 if (-1 == size || 0 >= size) {
-                    return;
+                    Log.i(TAG, "run: read fail");
+                    break;
                 }
 
                 byte[] readBytes = new byte[size];
@@ -52,6 +54,7 @@ public abstract class SerialPortReadThread extends Thread {
                 return;
             }
         }
+        Log.e(TAG, "run: quit readThread" + this.hashCode());
     }
 
     @Override
@@ -63,6 +66,7 @@ public abstract class SerialPortReadThread extends Thread {
      * 关闭线程 释放资源
      */
     public void release() {
+        Log.d(TAG, "release: ");
         interrupt();
 
         if (null != mInputStream) {

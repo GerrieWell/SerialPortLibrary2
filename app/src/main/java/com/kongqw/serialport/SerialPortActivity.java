@@ -1,6 +1,7 @@
 package com.kongqw.serialport;
 
 import android.content.DialogInterface;
+import android.content.res.AssetManager;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -10,19 +11,21 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import com.kongqw.serialportlibrary.SerialPortManager2;
 import com.kongqw.serialportlibrary.listener.OnOpenSerialPortListener;
 import com.kongqw.serialportlibrary.listener.OnSerialPortDataListener;
 import com.kongqw.serialportlibrary.Device;
 import com.kongqw.serialportlibrary.SerialPortManager;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 
 public class SerialPortActivity extends AppCompatActivity implements OnOpenSerialPortListener {
 
     private static final String TAG = SerialPortActivity.class.getSimpleName();
     public static final String DEVICE = "device";
-    private SerialPortManager mSerialPortManager;
+    private SerialPortManager2 mSerialPortManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,8 +39,7 @@ public class SerialPortActivity extends AppCompatActivity implements OnOpenSeria
             return;
         }
 
-        mSerialPortManager = new SerialPortManager();
-
+        mSerialPortManager = new SerialPortManager2();
         // 打开串口
         boolean openSerialPort = mSerialPortManager.setOnOpenSerialPortListener(this)
                 .setOnSerialPortDataListener(new OnSerialPortDataListener() {
@@ -68,6 +70,7 @@ public class SerialPortActivity extends AppCompatActivity implements OnOpenSeria
                     }
                 })
                 .openSerialPort(device.getFile(), 115200);
+        mSerialPortManager.enableFlowControl();
 
         Log.i(TAG, "onCreate: openSerialPort = " + openSerialPort);
     }
@@ -136,7 +139,7 @@ public class SerialPortActivity extends AppCompatActivity implements OnOpenSeria
      *
      * @param view view
      */
-    public void onSend(View view) {
+    public void onSend_bak(View view) {
         EditText editTextSendContent = (EditText) findViewById(R.id.et_send_content);
         if (null == editTextSendContent) {
             return;
@@ -152,6 +155,21 @@ public class SerialPortActivity extends AppCompatActivity implements OnOpenSeria
         boolean sendBytes = mSerialPortManager.sendBytes(sendContentBytes);
         Log.i(TAG, "onSend: sendBytes = " + sendBytes);
         showToast(sendBytes ? "发送成功" : "发送失败");
+    }
+
+    public void onSend(View view){
+        AssetManager assetManager = getAssets();
+        AssetManager.AssetInputStream ais = null;
+        try {
+            ais = (AssetManager.AssetInputStream) assetManager.open("Y01a_1.05.plt");
+            byte []buffer = new byte[ais.available()];
+            ais.read(buffer);
+            boolean sendBytes = mSerialPortManager.sendBytes(buffer);
+            Log.i(TAG, "onSend: sendBytes = " + sendBytes);
+            showToast(sendBytes ? "发送成功" : "发送失败");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private Toast mToast;

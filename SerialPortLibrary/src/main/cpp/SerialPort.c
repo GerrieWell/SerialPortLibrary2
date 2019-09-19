@@ -122,7 +122,9 @@ JNIEXPORT jobject JNICALL Java_com_kongqw_serialportlibrary_SerialPort_open
 		cfmakeraw(&cfg);
 		cfsetispeed(&cfg, speed);
 		cfsetospeed(&cfg, speed);
-
+/*		//希望开启软控制, 实测不管用.
+ * 		cfg.c_cflag&= ~CRTSCTS;
+		cfg.c_cflag |= IXON|IXOFF|IXANY;*/
 		if (tcsetattr(fd, TCSANOW, &cfg))
 		{
 			LOGE("tcsetattr() failed");

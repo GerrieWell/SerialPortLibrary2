@@ -1,100 +1,29 @@
 # 说明
+A serial port library supporting software flow control.
+ 
+此工程修改SerialPortLibrary. 主要添加软件流控制功能, 以及增加一些基于线程安全考虑的代码. 使用[kongqw的示例代码](https://github.com/kongqw/AndroidSerialPort)做展示.
 
-[android-serialport-api](https://code.google.com/archive/p/android-serialport-api/)
 
-[![](https://jitpack.io/v/kongqw/AndroidSerialPort.svg)](https://jitpack.io/#kongqw/AndroidSerialPort)
+##背景
 
-Step 1. Add the JitPack repository to your build file
+起因是某些设备无法用`cfg.c_cflag |= IXON|IXOFF|IXANY` 设置流控制, 设置后不起效.(见SerialPort.c#Java_com_kongqw_serialportlibrary_SerialPort_open) 
+所以使用java实现软件流控制.
 
-Add it in your root build.gradle at the end of repositories:
+##使用方法(Usage)
 
-``` Gradle
-allprojects {
-    repositories {
-        ...
-        maven { url 'https://jitpack.io' }
-    }
-}
-```
+###step0
+请先参考[此工程](https://github.com/kongqw/AndroidSerialPort)的使用方法.
 
-Step 2. Add the dependency
+###step1 
+将你工程的SerialPortManager 替换为SerialPortManager2.
 
-``` Gradle
-dependencies {
-        compile 'com.github.kongqw:AndroidSerialPort:1.0.1'
-}
-```
+###step2 
+在调用openSerialPort后, 插入SerialPortManager#enableFlowControl  方法开启流控制. 
 
-## 查看串口
+注意此时串口读取回调不可用. 建议用完后使用disableFlowControl 关闭流控制.
 
-``` Java
-SerialPortFinder serialPortFinder = new SerialPortFinder();
-ArrayList<Device> devices = serialPortFinder.getDevices();
-```
 
-## 打开串口
-
-### 初始化
-
-``` Java
-mSerialPortManager = new SerialPortManager();
-```
-
-### 添加打开串口监听
-
-``` Java
-mSerialPortManager.setOnOpenSerialPortListener(new OnOpenSerialPortListener() {
-    @Override
-    public void onSuccess(File device) {
-        
-    }
-
-    @Override
-    public void onFail(File device, Status status) {
-
-    }
-});
-```
-
-### 添加数据通信监听
-
-``` Java
-mSerialPortManager.setOnSerialPortDataListener(new OnSerialPortDataListener() {
-    @Override
-    public void onDataReceived(byte[] bytes) {
-        
-    }
-
-    @Override
-    public void onDataSent(byte[] bytes) {
-
-    }
-});
-```
-
-### 打开串口
-
-- 参数1：串口
-- 参数2：波特率
-- 返回：串口打开是否成功
-
-``` Java
-boolean openSerialPort = mSerialPortManager.openSerialPort(device.getFile(), 115200);
-```
-
-### 发送数据
-
-- 参数：发送数据 byte[]
-- 返回：发送是否成功
-
-``` Java
-boolean sendBytes = mSerialPortManager.sendBytes(sendContentBytes);
-```
-
-## 关闭串口
-
-``` Java
-mSerialPortManager.closeSerialPort();
-```
-
-> PS：传输协议需自行封装
+##NOTE
+仍然可以使用SerialPortManager, 和原版无区别;
+使用SerialPortManager2打开流控制时, 原版的OnSerialPortDataListener#onDataReceived 不可用, 也不要尝试读取串口; 
+此外由于inputstream#read不可中断, 关闭流控制后仍然可能读取一次串口.

@@ -15,7 +15,7 @@
         <EditText
             android:id="@+id/et_send_content"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="400dp"
             android:ems="10"
             android:gravity="top"
             android:hint="请输入发送内容，内容转 byte[] 发送"

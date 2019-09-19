@@ -1,5 +1,7 @@
 package com.kongqw.serialportlibrary;
 
+import android.annotation.TargetApi;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -23,25 +25,17 @@ import java.io.IOException;
 public class SerialPortManager extends SerialPort {
 
     private static final String TAG = SerialPortManager.class.getSimpleName();
-    private FileInputStream mFileInputStream;
-    private FileOutputStream mFileOutputStream;
-    private FileDescriptor mFd;
+    protected FileInputStream mFileInputStream;
+    protected FileOutputStream mFileOutputStream;
+    protected FileDescriptor mFd;
     private OnOpenSerialPortListener mOnOpenSerialPortListener;
-    private OnSerialPortDataListener mOnSerialPortDataListener;
+    protected OnSerialPortDataListener mOnSerialPortDataListener;
 
-    private HandlerThread mSendingHandlerThread;
-    private Handler mSendingHandler;
-    private SerialPortReadThread mSerialPortReadThread;
+    protected HandlerThread mSendingHandlerThread;
+    protected Handler mSendingHandler;
+    protected SerialPortReadThread mSerialPortReadThread = null;
 
-    /**
-     * 打开串口
-     *
-     * @param device   串口设备
-     * @param baudRate 波特率
-     * @return 打开是否成功
-     */
-    public boolean openSerialPort(File device, int baudRate) {
-
+    public synchronized boolean openSerialPort(File device, int baudRate) {
         Log.i(TAG, "openSerialPort: " + String.format("打开串口 %s  波特率 %s", device.getPath(), baudRate));
 
         // 校验串口权限
@@ -58,7 +52,6 @@ public class SerialPortManager extends SerialPort {
 
         try {
             mFd = open(device.getAbsolutePath(), baudRate, 0);
-            mFileInputStream = new FileInputStream(mFd);
             mFileOutputStream = new FileOutputStream(mFd);
             Log.i(TAG, "openSerialPort: 串口已经打开 " + mFd);
             if (null != mOnOpenSerialPortListener) {
@@ -66,8 +59,14 @@ public class SerialPortManager extends SerialPort {
             }
             // 开启发送消息的线程
             startSendThread();
-            // 开启接收消息的线程
-            startReadThread();
+            /* NOTE
+            接收消息的线程.
+            在快速打开-发送-关闭的应用场景中, 读取线程还在没释放, inputStream就被置null了.
+            虽然可以用锁解决.
+            为了更灵活应用和节省资源. 默认关闭读取线程.
+             */
+//            mFileInputStream = new FileInputStream(mFd);
+            //startReadThread();
             return true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -78,19 +77,17 @@ public class SerialPortManager extends SerialPort {
         return false;
     }
 
-    /**
-     * 关闭串口
-     */
-    public void closeSerialPort() {
-
-        if (null != mFd) {
-            close();
-            mFd = null;
-        }
+    public synchronized void closeSerialPort() {
+        Log.d(TAG, "closeSerialPort() called");
         // 停止发送消息的线程
         stopSendThread();
         // 停止接收消息的线程
         stopReadThread();
+        if (null != this.mFd) {
+            //必须是this.close. 不能用super.close. 为什么呢?
+            this.close();
+            this.mFd = null;
+        }
 
         if (null != mFileInputStream) {
             try {
@@ -179,7 +176,7 @@ public class SerialPortManager extends SerialPort {
     /**
      * 开启接收消息的线程
      */
-    private void startReadThread() {
+    public void startReadThread() {
         mSerialPortReadThread = new SerialPortReadThread(mFileInputStream) {
             @Override
             public void onDataReceived(byte[] bytes) {
@@ -194,7 +191,7 @@ public class SerialPortManager extends SerialPort {
     /**
      * 停止接收消息的线程
      */
-    private void stopReadThread() {
+    public void stopReadThread() {
         if (null != mSerialPortReadThread) {
             mSerialPortReadThread.release();
         }
@@ -207,7 +204,7 @@ public class SerialPortManager extends SerialPort {
      * @return 发送是否成功
      */
     public boolean sendBytes(byte[] sendBytes) {
-        if (null != mFd && null != mFileInputStream && null != mFileOutputStream) {
+        if (null != mFd  && null != mFileOutputStream) {
             if (null != mSendingHandler) {
                 Message message = Message.obtain();
                 message.obj = sendBytes;
@@ -215,5 +212,10 @@ public class SerialPortManager extends SerialPort {
             }
         }
         return false;
+    }
+
+    @TargetApi(Build.VERSION_CODES.M)
+    public boolean isIdle(){
+        return mSendingHandler.getLooper().getQueue().isIdle();
     }
 }
