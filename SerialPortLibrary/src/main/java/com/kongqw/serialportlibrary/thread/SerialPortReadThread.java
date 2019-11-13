@@ -35,9 +35,10 @@ public abstract class SerialPortReadThread extends Thread {
                 }
 
                 Log.i(TAG, "run: ");
+                //mInputStream.available 返回read: unexpected EOF!
                 int size = mInputStream.read(mReadBuffer);
 
-                if (-1 == size || 0 >= size) {
+                if (size < 0) {
                     Log.i(TAG, "run: read fail");
                     break;
                 }

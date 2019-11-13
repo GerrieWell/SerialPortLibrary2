@@ -165,6 +165,7 @@ public class SerialPortManager extends SerialPort {
      * 停止发送消息线程
      */
     private void stopSendThread() {
+
         mSendingHandler = null;
         if (null != mSendingHandlerThread) {
             mSendingHandlerThread.interrupt();
@@ -177,6 +178,8 @@ public class SerialPortManager extends SerialPort {
      * 开启接收消息的线程
      */
     public void startReadThread() {
+        if(mFileInputStream==null)
+            mFileInputStream = new FileInputStream(mFd);
         mSerialPortReadThread = new SerialPortReadThread(mFileInputStream) {
             @Override
             public void onDataReceived(byte[] bytes) {
@@ -186,6 +189,12 @@ public class SerialPortManager extends SerialPort {
             }
         };
         mSerialPortReadThread.start();
+    }
+
+    public boolean isReadThreadRunning(){
+        boolean r =  mSerialPortReadThread!=null && mSerialPortReadThread.getState() != Thread.State.TERMINATED;
+        Log.i(TAG, "isReadThreadRunning: " +  (mSerialPortReadThread!=null ? String.valueOf(mSerialPortReadThread.getState()) :"null"));
+        return r;
     }
 
     /**

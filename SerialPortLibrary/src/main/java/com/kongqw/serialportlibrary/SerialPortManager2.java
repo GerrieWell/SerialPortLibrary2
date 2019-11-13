@@ -8,6 +8,7 @@ import android.util.Log;
 
 import com.kongqw.serialportlibrary.thread.SerialPortReadThread;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Arrays;
@@ -65,6 +66,45 @@ public class SerialPortManager2 extends SerialPortManager {
         controlThread.start();
         mFlowControlThread.start();
         controlHandler = new ControlHandler(controlThread.getLooper());
+    }
+    //enable flow control 实现
+    private volatile boolean flowControlEnabled = false;
+
+/*
+    没必要 默认关闭了.
+    @Override
+    public synchronized boolean openSerialPort(File device, int baudRate) {
+        boolean opened = super.openSerialPort(device, baudRate);
+        if(opened) {
+            stopReadThread();
+        }
+        return opened;
+    }*/
+
+    private void startReadThreadWithFC() {
+        mSerialPortReadThread = new SerialPortReadThread(mFileInputStream) {
+            @Override
+            public void onDataReceived(byte[] bytes) {
+                Log.d(TAG, "SerialPortManager2 onDataReceived: " + bytes[0]);
+                if (bytes[0] == I_FLOW_CONTROL_XOFF && flowControlEnabled) {
+                    pauseSending = true;
+                } else if (bytes[0] == I_FLOW_CONTROL_XON && flowControlEnabled) {
+                    pauseSending = false;
+                    lock.notifyAll();
+                }else{
+                    if (null != mOnSerialPortDataListener) {
+                        mOnSerialPortDataListener.onDataReceived(bytes);
+                    }
+                }
+            }
+        };
+        mSerialPortReadThread.start();
+    }
+
+    public synchronized void enableFlowControl2(){
+        //check and open Serial Input stream.
+        startReadThreadWithFC();
+        flowControlEnabled = true;
     }
 
     public synchronized void disableFlowControl(){
