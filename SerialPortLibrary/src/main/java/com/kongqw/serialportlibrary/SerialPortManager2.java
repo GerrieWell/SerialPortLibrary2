@@ -6,12 +6,13 @@ import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 
-import com.kongqw.serialportlibrary.thread.SerialPortReadThread;
-
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class SerialPortManager2 extends SerialPortManager {
 
@@ -21,22 +22,164 @@ public class SerialPortManager2 extends SerialPortManager {
     private static final long I_CONFIG_SEND_GAP_MILL = 5;
     private static final int I_FLOW_CONTROL_XOFF = 19;
     private static final int I_FLOW_CONTROL_XON = 17;
-    private SerialPortReadThread mFlowControlThread = null;
+//    private SerialPortReadThread mFlowControlThread = null;
     private volatile boolean pauseSending = false;
     private final Object lock = new Object();
     private ControlHandler controlHandler;
-    private HandlerThread controlThread;
 
-    public boolean isFlowControlOn(){
-        // state should be runnable if FlowControl on
-        return mFlowControlThread!=null && mFlowControlThread.getState() != Thread.State.TERMINATED;
+    private final int mBufferSize = 256;
+    final BlockingQueue<Byte> queue = new LinkedBlockingQueue<>(mBufferSize);
+    final BlockingQueue<Byte> readBuffer = new LinkedBlockingQueue<>(mBufferSize);
+
+    private FileInputStream mFileInputStream;
+
+    private volatile boolean flowControlEnabled = false;
+
+    class PollingBufferThread extends Thread{
+        BlockingQueue<Byte> queue;
+        int defaultExpectedSize;
+        public PollingBufferThread(BlockingQueue<Byte> queue, int expectedSize) {
+            this.queue = queue;
+            this.defaultExpectedSize = expectedSize;
+        }
+
+        byte []buffer;
+        @Override
+        public void run() {
+            super.run();
+            buffer = new byte[defaultExpectedSize];
+            int cur = 0;
+            Log.d(TAG, "PollingBufferThread run: " + buffer.length);
+            while (true){
+                try {
+                    Byte aByte = queue.poll(500, TimeUnit.MILLISECONDS);
+                    if(aByte==null){
+                        Log.d(TAG, "run: poll nothing");
+                        continue;
+                    }
+                    byte b = aByte;
+                    synchronized (lock) {
+                        Log.d(TAG, "SerialPortManager2 onDataReceived: " + b);
+                        if (b == I_FLOW_CONTROL_XOFF) {
+                            pauseSending = true;
+                        } else if (b == I_FLOW_CONTROL_XON) {
+                            pauseSending = false;
+                            lock.notifyAll();
+                        } else {
+                            if (asyncReadMode && mOnSerialPortDataListener != null) {
+//                                    if(false){
+                                buffer[cur] = b;
+                                cur++;
+                                if (cur >= buffer.length) {
+                                    mOnSerialPortDataListener.onDataReceived(buffer.clone());
+                                    cur = 0;
+                                }
+                            }else{
+                                readBuffer.put(aByte);
+                            }
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
     }
 
-    public synchronized void enableFlowControl(){
-         if(controlHandler!=null || isFlowControlOn()){
-             Log.d(TAG, "enableFlowControl: already enable." );
-             return;
-         }
+    private boolean asyncReadMode = false;
+    public void setAsyncReadMode(boolean asyncReadMode){
+        this.asyncReadMode = asyncReadMode;
+    }
+
+    public boolean isFlowControlOn(){
+        return controlHandler!=null && flowControlEnabled;
+    }
+
+    public synchronized void enableFlowControl() {
+        Log.d(TAG, "enableFlowControl: ");
+        if (isFlowControlOn()) {
+            Log.d(TAG, "enableFlowControl: already enable.");
+            return;
+        }
+        flowControlEnabled = true;
+        if (!isReadThreadSetup()) {
+            startReadThread();
+        }
+        HandlerThread controlThread;
+        controlThread = new HandlerThread("Control Thread");
+        controlThread.start();
+        controlHandler = new ControlHandler(controlThread.getLooper());
+    }
+
+    public synchronized void disableFlowControl(){
+        Log.d(TAG, "disableFlowControl: ");
+        flowControlEnabled = false;
+        if(controlHandler!=null){
+            controlHandler.getLooper().quitSafely();
+            controlHandler = null;
+        }
+        controlHandler = null;
+    }
+
+    private boolean isReadThreadSetup(){
+        return mFileInputStream!=null && mSerialPortReadThread!=null
+                && mSerialPortReadThread.getState() != Thread.State.TERMINATED && mSerialPortReadThread.getState()!= Thread.State.NEW;
+    }
+
+
+    public byte []readQueueBlock(int size, long timeoutMs){
+        if(asyncReadMode && mOnSerialPortDataListener!=null){
+            Log.e(TAG, "readQueueBlock: unable to read, because of async mode ");
+            return null;
+        }
+        if(!isReadThreadSetup()){
+            startReadThread();
+        }
+        Log.d(TAG, "readQueueBlock: " + flowControlEnabled);
+        if(flowControlEnabled){
+            synchronized (controlHandler){
+                Log.d(TAG, "readQueueBlock: wait flow control." );
+            }
+        }
+        int cur = 0;
+        ByteBuffer buffer = ByteBuffer.allocate(size);
+        try {
+            while(cur < size){
+//                buffer[cur++] = queue.take().byteValue();
+//                Byte readByte = queue.poll(timeoutMs, TimeUnit.MILLISECONDS);
+                Byte readByte = readBuffer.poll(timeoutMs, TimeUnit.MILLISECONDS);
+                if(readByte==null){
+                    break;
+                }
+                buffer.put(readByte);
+                cur++;
+//                buffer[cur++] = readByte;
+            }
+            buffer.flip();
+            Log.i(TAG, "readQueueBlock: " + buffer.toString());
+            if(buffer.limit()==0){
+                return null;
+            }
+            byte []content = new byte[buffer.limit()];
+            buffer.get(content);
+            String tmp = new String(content);
+            Log.i(TAG, "readQueueBlock: " + tmp);
+            return content;
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    @Override
+    public void startReadThread() {
+        Log.d(TAG, "startReadThread() called");
+        if(isReadThreadSetup()){
+            Log.d(TAG, "startReadThread: already start");
+            return;
+        }
+
         stopReadThread();
         if(mFileInputStream!=null) {
             try {
@@ -46,78 +189,49 @@ public class SerialPortManager2 extends SerialPortManager {
                 e.printStackTrace();
             }
         }
-        FileInputStream fis = new FileInputStream(mFd);
-        mFlowControlThread = new SerialPortReadThread(fis) {
-            @Override
-            public void onDataReceived(byte[] bytes) {
-                synchronized (lock) {
-                    Log.d(TAG, "SerialPortManager2 onDataReceived: " + bytes[0]);
-                    if (bytes[0] == I_FLOW_CONTROL_XOFF) {
-                        pauseSending = true;
-                    } else if (bytes[0] == I_FLOW_CONTROL_XON) {
-                        pauseSending = false;
-                        lock.notifyAll();
-                    }
-                }
-            }
-        };
-//        mSendingHandlerThread.getLooper().
-        controlThread = new HandlerThread("Control Thread");
-        controlThread.start();
-        mFlowControlThread.start();
-        controlHandler = new ControlHandler(controlThread.getLooper());
-    }
-    //enable flow control 实现
-    private volatile boolean flowControlEnabled = false;
 
-/*
-    没必要 默认关闭了.
-    @Override
-    public synchronized boolean openSerialPort(File device, int baudRate) {
-        boolean opened = super.openSerialPort(device, baudRate);
-        if(opened) {
-            stopReadThread();
-        }
-        return opened;
-    }*/
+        PollingBufferThread thread = new PollingBufferThread(queue, 8);
+        thread.start();
 
-    private void startReadThreadWithFC() {
-        mSerialPortReadThread = new SerialPortReadThread(mFileInputStream) {
-            @Override
-            public void onDataReceived(byte[] bytes) {
-                Log.d(TAG, "SerialPortManager2 onDataReceived: " + bytes[0]);
-                if (bytes[0] == I_FLOW_CONTROL_XOFF && flowControlEnabled) {
-                    pauseSending = true;
-                } else if (bytes[0] == I_FLOW_CONTROL_XON && flowControlEnabled) {
-                    pauseSending = false;
-                    lock.notifyAll();
-                }else{
-                    if (null != mOnSerialPortDataListener) {
-                        mOnSerialPortDataListener.onDataReceived(bytes);
-                    }
-                }
-            }
-        };
+        mFileInputStream = new FileInputStream(mFd);
+        mSerialPortReadThread = new BufferReadThread(mFileInputStream, queue);
         mSerialPortReadThread.start();
     }
+    private BufferReadThread mSerialPortReadThread;
 
-    public synchronized void enableFlowControl2(){
-        //check and open Serial Input stream.
-        startReadThreadWithFC();
-        flowControlEnabled = true;
-    }
-
-    public synchronized void disableFlowControl(){
-        Log.d(TAG, "disableFlowControl: ");
-        controlHandler = null;
-        if (null != mFlowControlThread) {
-            mFlowControlThread.interrupt();
-            mFlowControlThread.release();
-            //mFlowControlThread = null; //still alive; block and wait last read.
+    static class BufferReadThread extends Thread{
+        BlockingQueue<Byte> buffer = null;
+        private FileInputStream mInputStream;
+        public BufferReadThread(FileInputStream inputStream, BlockingQueue<Byte> buffer) {
+            this.buffer = buffer;
+            this.mInputStream = inputStream;
         }
-        if(controlThread!=null){
-            controlThread.quit();
-            controlThread = null;
+
+        @Override
+        public void run() {
+            while (!isInterrupted()) {
+                try {
+                    if (null == mInputStream) {
+                        Log.i(TAG, "run: null input stream" );
+                        break;
+                    }
+                    int read = mInputStream.read();
+                    if (read < 0) {
+                        Log.e(TAG, "run: read fail");
+                        break;
+                    }
+                    byte b = (byte) read;
+                    Log.d(TAG, "BufferReadThread run: " + b);
+                    buffer.put(b);
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    return;
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            Log.e(TAG, "run: quit readThread" + this.hashCode());
         }
     }
 
@@ -131,6 +245,7 @@ public class SerialPortManager2 extends SerialPortManager {
         void sendBytes(byte[] bytes){
             Message m = Message.obtain();
             m.obj = bytes;
+            Log.d(TAG, "handleMessage: " + bytes.length);
             this.sendMessage(m);
         }
 
@@ -185,7 +300,4 @@ public class SerialPortManager2 extends SerialPortManager {
         super.closeSerialPort();
     }
 
-/*    public boolean sendBytesRaw(byte[] sendBytes){
-        return super.sendBytes(sendBytes);
-    }*/
 }

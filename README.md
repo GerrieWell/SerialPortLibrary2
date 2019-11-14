@@ -26,4 +26,4 @@ A serial port library supporting software flow control.
 ##NOTE
 仍然可以使用SerialPortManager, 和原版无区别;
 使用SerialPortManager2打开流控制时, 原版的OnSerialPortDataListener#onDataReceived 不可用, 也不要尝试读取串口; 
-此外由于inputstream#read不可中断, 关闭流控制后仍然可能读取一次串口.
+此外由于inputstream#read不可中断, 关闭流控制后仍然可能读取一次串口. 取决于另一端的发送逻辑. 
