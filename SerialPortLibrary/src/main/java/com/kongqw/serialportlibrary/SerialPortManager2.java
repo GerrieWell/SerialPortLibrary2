@@ -54,15 +54,14 @@ public class SerialPortManager2 extends SerialPortManager {
                 try {
                     Byte aByte = queue.poll(500, TimeUnit.MILLISECONDS);
                     if(aByte==null){
-                        Log.d(TAG, "run: poll nothing");
                         continue;
                     }
                     byte b = aByte;
                     synchronized (lock) {
                         Log.d(TAG, "SerialPortManager2 onDataReceived: " + b);
-                        if (b == I_FLOW_CONTROL_XOFF) {
+                        if (flowControlEnabled && b == I_FLOW_CONTROL_XOFF) {
                             pauseSending = true;
-                        } else if (b == I_FLOW_CONTROL_XON) {
+                        } else if (flowControlEnabled && b == I_FLOW_CONTROL_XON) {
                             pauseSending = false;
                             lock.notifyAll();
                         } else {
