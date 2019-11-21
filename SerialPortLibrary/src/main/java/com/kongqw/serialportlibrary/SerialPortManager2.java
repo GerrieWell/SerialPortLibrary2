@@ -122,8 +122,8 @@ public class SerialPortManager2 extends SerialPortManager {
     }
 
     private boolean isReadThreadSetup(){
-        return mFileInputStream!=null && mSerialPortReadThread!=null
-                && mSerialPortReadThread.getState() != Thread.State.TERMINATED && mSerialPortReadThread.getState()!= Thread.State.NEW;
+//        Log.d(TAG, "isReadThreadSetup: " + mFileInputStream + ", " + (mSerialPortReadThread==null? "null thread":mSerialPortReadThread.getState().toString()));
+        return  mSerialPortReadThread!=null&& mSerialPortReadThread.getState() != Thread.State.TERMINATED && mSerialPortReadThread.getState()!= Thread.State.NEW;
     }
 
 
@@ -136,24 +136,16 @@ public class SerialPortManager2 extends SerialPortManager {
             startReadThread();
         }
         Log.d(TAG, "readQueueBlock: " + flowControlEnabled);
-        if(flowControlEnabled){
-            synchronized (controlHandler){
-                Log.d(TAG, "readQueueBlock: wait flow control." );
-            }
-        }
         int cur = 0;
         ByteBuffer buffer = ByteBuffer.allocate(size);
         try {
             while(cur < size){
-//                buffer[cur++] = queue.take().byteValue();
-//                Byte readByte = queue.poll(timeoutMs, TimeUnit.MILLISECONDS);
                 Byte readByte = readBuffer.poll(timeoutMs, TimeUnit.MILLISECONDS);
                 if(readByte==null){
                     break;
                 }
                 buffer.put(readByte);
                 cur++;
-//                buffer[cur++] = readByte;
             }
             buffer.flip();
             Log.i(TAG, "readQueueBlock: " + buffer.toString());
@@ -179,7 +171,7 @@ public class SerialPortManager2 extends SerialPortManager {
             return;
         }
 
-        stopReadThread();
+//        stopReadThread();
         if(mFileInputStream!=null) {
             try {
                 mFileInputStream.close();
